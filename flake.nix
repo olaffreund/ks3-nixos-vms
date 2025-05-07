@@ -76,6 +76,17 @@
         nix build .#master .#worker1 .#worker2 --builders "ssh://${target}" --max-jobs 4
         echo "Build complete."
       '';
+
+    # Zellij launch script for K3s cluster
+    zellijLaunchScript = pkgs.writeShellScriptBin "k3s-cluster-zellij" ''
+      #!/bin/sh
+      # Ensure shared directory exists
+      mkdir -p /tmp/nixos-vm-shared
+
+      # Launch zellij with K3s cluster layout
+      echo "Starting K3s cluster management environment in Zellij..."
+      ${pkgs.zellij}/bin/zellij --layout ${./config/k3s-cluster.kdl}
+    '';
   in
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
@@ -104,6 +115,9 @@
         # Remote build helpers
         "build-remote-local" = remoteBuildScript "localhost";
         "build-remote-server" = remoteBuildScript "build-server.example.com";
+
+        # Zellij K3s cluster launch script
+        "k3s-cluster-zellij" = zellijLaunchScript;
 
         # Meta package to build and run all VMs
         default = pkgs.writeShellScriptBin "run-cluster" ''
@@ -140,10 +154,14 @@
           nixpkgs-fmt # For formatting Nix files
           git
 
+          # Terminal multiplexer
+          zellij
+
           # Include our custom scripts
           self.packages.${system}.default
           self.packages.${system}."build-remote-local"
           self.packages.${system}."build-remote-server"
+          self.packages.${system}."k3s-cluster-zellij"
         ];
 
         shellHook = ''
@@ -156,6 +174,7 @@
           echo " - qemu: VM virtualization"
           echo " - tailscale: Secure networking"
           echo " - kustomize: Kubernetes configuration management"
+          echo " - zellij: Terminal multiplexer"
           echo ""
           echo "VM Management Commands:"
           echo " - run-cluster: Run all VMs locally"
@@ -167,6 +186,9 @@
           echo "Remote Build Commands:"
           echo " - build-remote: Build all QEMU images on configured remote builder"
           echo " - nix build .#qemu-images-all --builders 'ssh://your-remote': Manual remote build"
+          echo ""
+          echo "K3s Cluster in Zellij Command:"
+          echo " - k3s-cluster-zellij: Launch the K3s cluster in a Zellij session with interactive panes"
           echo ""
           echo "To access kubeconfig: export KUBECONFIG=/tmp/nixos-vm-shared/kubeconfig"
 
@@ -186,6 +208,9 @@
           echo " - build_qemu_image master: Build QEMU image for master node"
           echo " - build_qemu_image worker1: Build QEMU image for worker1 node"
           echo " - build_qemu_image worker2: Build QEMU image for worker2 node"
+
+          echo ""
+          echo "To start the K3s cluster in Zellij, run: k3s-cluster-zellij"
         '';
       };
     })
