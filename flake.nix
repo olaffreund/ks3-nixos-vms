@@ -58,6 +58,32 @@
         echo "Build complete."
       '';
 
+    # Cleanup script to delete result folder and .qcow2 files
+    cleanupScript = pkgs.writeShellScriptBin "cleanup" ''
+      #!/bin/sh
+      echo "Cleaning up build artifacts..."
+
+      # Check if result folder exists and remove it
+      if [ -d "./result" ] || [ -L "./result" ]; then
+        echo "Removing result folder/symlink..."
+        rm -rf ./result
+      else
+        echo "No result folder/symlink found."
+      fi
+
+      # Find and remove .qcow2 files
+      QCOW2_FILES=$(find . -maxdepth 1 -name "*.qcow2")
+      if [ -n "$QCOW2_FILES" ]; then
+        echo "Removing .qcow2 files:"
+        echo "$QCOW2_FILES"
+        find . -maxdepth 1 -name "*.qcow2" -delete
+      else
+        echo "No .qcow2 files found."
+      fi
+
+      echo "Cleanup complete!"
+    '';
+
     # Zellij launch script for K3s standalone server
     zellijLaunchScript = pkgs.writeShellScriptBin "k3s-standalone-zellij" ''
       #!/bin/sh
@@ -83,6 +109,9 @@
         # Remote build helpers
         "build-remote-local" = remoteBuildScript "localhost";
         "build-remote-server" = remoteBuildScript "build-server.example.com";
+
+        # Cleanup script for build artifacts
+        "cleanup" = cleanupScript;
 
         # Zellij K3s standalone launch script
         "k3s-standalone-zellij" = zellijLaunchScript;
@@ -139,6 +168,7 @@
           self.packages.${system}."build-remote-local"
           self.packages.${system}."build-remote-server"
           self.packages.${system}."k3s-standalone-zellij"
+          self.packages.${system}.cleanup
         ];
 
         shellHook = ''
@@ -164,6 +194,9 @@
           echo " - build-remote-server: Build QEMU image on remote server"
           echo " - nix build .#qemu-master --builders 'ssh://your-remote': Manual remote build"
           echo ""
+          echo "Cleanup Command:"
+          echo " - cleanup: Remove result folder and .qcow2 files"
+          echo ""
           echo "K3s Standalone in Zellij Command:"
           echo " - k3s-standalone-zellij: Launch the K3s standalone server in a Zellij session"
           echo ""
@@ -187,6 +220,7 @@
           echo ""
           echo "Helper commands added to your shell:"
           echo " - build_qemu_image master: Build QEMU image for master node"
+          echo " - cleanup: Remove result folder and .qcow2 files"
 
           echo ""
           echo "To start the K3s standalone server in Zellij, run: k3s-standalone-zellij"
