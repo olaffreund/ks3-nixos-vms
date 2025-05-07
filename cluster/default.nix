@@ -17,8 +17,27 @@
     # For NixOS VM testing, use these options instead
     virtualisation.vmVariant = {
       virtualisation = {
-        cores = 2;
-        memorySize = 2048;
+        cores = 4;
+        memorySize = 4096;
+
+        # Configure port forwarding for VM
+        forwardPorts = [
+          {
+            from = "host";
+            host.port = 2222;
+            guest.port = 22;
+          }
+          {
+            from = "host";
+            host.port = 6443;
+            guest.port = 6443;
+          }
+          {
+            from = "host";
+            host.port = 8088;
+            guest.port = 80;
+          }
+        ];
 
         # Shared folder for easy file exchange with host
         sharedDirectories = {

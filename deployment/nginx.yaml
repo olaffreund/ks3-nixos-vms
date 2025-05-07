@@ -40,6 +40,38 @@ data:
         proxy_set_header X-Forwarded-Proto $scheme;
       }
     }
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+    pid /tmp/nginx/nginx.pid;
+    error_log /var/log/nginx/error.log warn;
+    
+    events {
+      worker_connections 1024;
+    }
+    
+    http {
+      include /etc/nginx/mime.types;
+      default_type application/octet-stream;
+      
+      log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+      
+      access_log /var/log/nginx/access.log main;
+      
+      sendfile on;
+      keepalive_timeout 65;
+      
+      # Custom temp paths for non-root user
+      client_body_temp_path /tmp/nginx/client_temp;
+      proxy_temp_path /tmp/nginx/proxy_temp;
+      fastcgi_temp_path /tmp/nginx/fastcgi_temp;
+      uwsgi_temp_path /tmp/nginx/uwsgi_temp;
+      scgi_temp_path /tmp/nginx/scgi_temp;
+      
+      include /etc/nginx/conf.d/*.conf;
+    }
   index.html: |
     <!DOCTYPE html>
     <html>
@@ -140,7 +172,7 @@ spec:
     spec:
       containers:
       - name: database-check
-        image: node:18-alpine  # Updated to newer Node version
+        image: node:18-alpine
         ports:
         - containerPort: 3000
           name: http
@@ -164,76 +196,100 @@ spec:
           value: postgres
         - name: PGPORT
           value: "5432"
+        # Increase resource limits slightly to ensure we have enough space
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
         readinessProbe:
           httpGet:
             path: /check
             port: http
-          initialDelaySeconds: 15
+          initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 10
         livenessProbe:
           httpGet:
             path: /check
             port: http
-          initialDelaySeconds: 30
+          initialDelaySeconds: 60
           periodSeconds: 20
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
+          timeoutSeconds: 5
+          failureThreshold: 5
         command:
         - sh
         - -c
         - |
-          echo 'Installing dependencies...'
-          npm init -y
-          npm install pg express
+          # Install only PostgreSQL client
+          apk add --no-cache postgresql-client
+
+          # Create a direct script with minimal dependencies
+          mkdir -p /app
+          cd /app
           
-          echo 'Creating server.js...'
+          echo "Creating server.js..."
           cat > server.js << 'EOF'
-          const express = require('express');
-          const { Pool } = require('pg');
-          const app = express();
-          const port = 3000;
+          const http = require('http');
+          const { execSync } = require('child_process');
+          const { hostname } = require('os');
           
-          const pool = new Pool({
-            user: process.env.PGUSER,
-            host: process.env.PGHOST,
-            database: process.env.PGDATABASE,
-            password: process.env.PGPASSWORD,
-            port: process.env.PGPORT,
-          });
-          
-          app.get('/check', async (req, res) => {
-            try {
-              const client = await pool.connect();
-              const result = await client.query('SELECT version()');
-              const version = result.rows[0].version;
-              client.release();
+          // Create an HTTP server
+          const server = http.createServer(async (req, res) => {
+            if (req.url === '/check') {
+              res.setHeader('Content-Type', 'application/json');
               
-              res.json({
-                connected: true,
-                database: process.env.PGDATABASE,
-                user: process.env.PGUSER,
-                version: version
-              });
-            } catch (err) {
-              res.json({
-                connected: false,
-                error: err.message
-              });
+              try {
+                console.log('Database check requested');
+                // Use the PostgreSQL client directly instead of node-postgres
+                const command = `PGPASSWORD="${process.env.PGPASSWORD}" psql -h ${process.env.PGHOST} -U ${process.env.PGUSER} -d ${process.env.PGDATABASE} -t -c "SELECT version()"`;
+                const version = execSync(command).toString().trim();
+                
+                const response = {
+                  connected: true,
+                  database: process.env.PGDATABASE,
+                  user: process.env.PGUSER,
+                  version: version
+                };
+                
+                console.log('Database check successful:', JSON.stringify(response));
+                res.statusCode = 200;
+                res.end(JSON.stringify(response));
+              } catch (err) {
+                console.error('Database check failed:', err.message);
+                res.statusCode = 200;
+                res.end(JSON.stringify({
+                  connected: false,
+                  error: err.message
+                }));
+              }
+            } else if (req.url === '/health') {
+              res.statusCode = 200;
+              res.end('OK');
+            } else {
+              res.statusCode = 404;
+              res.end('Not found');
             }
           });
           
-          app.listen(port, () => {
-            console.log(`Database check service running at http://localhost:${port}`);
+          // Start the server
+          server.listen(3000, '0.0.0.0', () => {
+            console.log(`Database check service running at http://0.0.0.0:3000`);
           });
           EOF
           
-          echo 'Starting Node.js server...'
-          node server.js
+          echo "Starting Node.js server..."
+          cd /app
+          NODE_ENV=production node server.js
+        volumeMounts:
+        - name: app-data
+          mountPath: /app
+      volumes:
+      - name: app-data
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -262,19 +318,36 @@ spec:
       labels:
         app: nginx
     spec:
+      # Init container to create and set permissions on required directories
+      initContainers:
+      - name: init-nginx-temp
+        image: alpine:3.18
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          mkdir -p /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp
+          # Also create directory for PID file
+          mkdir -p /tmp/nginx
+          chmod 777 /tmp/nginx /tmp/nginx/client_temp /tmp/nginx/proxy_temp /tmp/nginx/fastcgi_temp /tmp/nginx/uwsgi_temp /tmp/nginx/scgi_temp
+        volumeMounts:
+        - name: nginx-temp
+          mountPath: /tmp/nginx
       containers:
       - name: nginx
-        image: nginx:stable-alpine  # Updated to stable Alpine version
+        image: nginx:stable-alpine
         ports:
         - containerPort: 80
           name: http
         volumeMounts:
-        - name: nginx-config
-          mountPath: /etc/nginx/conf.d/default.conf
-          subPath: default.conf
-        - name: nginx-config
-          mountPath: /usr/share/nginx/html/index.html
-          subPath: index.html
+        - name: config-volume
+          mountPath: /etc/nginx/conf.d/
+        - name: html-volume
+          mountPath: /usr/share/nginx/html/
+        - name: nginx-temp
+          mountPath: /tmp/nginx
+        - name: nginx-config-volume
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
         resources:
           requests:
             memory: "64Mi"
@@ -294,18 +367,39 @@ spec:
             port: http
           initialDelaySeconds: 15
           periodSeconds: 20
+        # Add nginx configuration through environment variables
+        env:
+        - name: NGINX_ENTRYPOINT_QUIET_LOGS
+          value: "1"
         securityContext:
           allowPrivilegeEscalation: false
-          runAsNonRoot: true
-          runAsUser: 101  # nginx user
+          # Run as nginx user
+          runAsUser: 101
           runAsGroup: 101
           capabilities:
             drop:
               - ALL
       volumes:
-      - name: nginx-config
+      - name: config-volume
         configMap:
           name: nginx-config
+          items:
+          - key: default.conf
+            path: default.conf
+      - name: html-volume
+        configMap:
+          name: nginx-config
+          items:
+          - key: index.html
+            path: index.html
+      - name: nginx-config-volume
+        configMap:
+          name: nginx-config
+          items:
+          - key: nginx.conf
+            path: nginx.conf
+      - name: nginx-temp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
