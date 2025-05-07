@@ -13,22 +13,22 @@ layout {
         pane split_direction="vertical" {
             pane name="Shell" size="50%" {
                 command "zsh"
-                args "-c" "echo 'Welcome to the K3s NixOS VM Development Environment'; exec zsh"
+                args "-c" "echo 'Welcome to the K3s NixOS VM Development Environment'; echo 'Explore the cluster environment from this pane'; exec zsh"
                 focus true
             }
             pane split_direction="horizontal" size="50%" {
                 pane name="K3s Master" size="50%" {
                     command "zsh"
-                    args "-c" "echo 'Press Enter to build and start the K3s master node'; read; echo 'Building Master node...'; nix build .#master; echo 'Starting Master node...'; result/bin/run-k3s-master-vm"
+                    args "-c" "echo 'Press Enter to build and start the K3s master node'; read; echo 'Building Master node...'; nix build .#master; echo 'Starting Master node in terminal mode...'; env QEMU_OPTS=\"-nographic\" QEMU_KERNEL_PARAMS=\"console=ttyS0\" result/bin/run-k3s-master-vm"
                 }
                 pane split_direction="horizontal" size="50%" {
                     pane name="K3s Worker 1" size="50%" {
                         command "zsh"
-                        args "-c" "echo 'Press Enter to build and start K3s worker1 node'; echo '(Wait for master to be ready first)'; read; echo 'Building Worker1 node...'; nix build .#worker1; echo 'Starting Worker1 node...'; result/bin/run-k3s-worker1-vm"
+                        args "-c" "echo 'Press Enter to build and start K3s worker1 node'; echo '(Wait for master to be ready first)'; read; echo 'Building Worker1 node...'; nix build .#worker1; echo 'Starting Worker1 node in terminal mode...'; env QEMU_OPTS=\"-nographic\" QEMU_KERNEL_PARAMS=\"console=ttyS0\" result/bin/run-k3s-worker1-vm"
                     }
                     pane name="K3s Worker 2" size="50%" {
                         command "zsh"
-                        args "-c" "echo 'Press Enter to build and start K3s worker2 node'; echo '(Wait for master to be ready first)'; read; echo 'Building Worker2 node...'; nix build .#worker2; echo 'Starting Worker2 node...'; result/bin/run-k3s-worker2-vm"
+                        args "-c" "echo 'Press Enter to build and start K3s worker2 node'; echo '(Wait for master to be ready first)'; read; echo 'Building Worker2 node...'; nix build .#worker2; echo 'Starting Worker2 node in terminal mode...'; env QEMU_OPTS=\"-nographic\" QEMU_KERNEL_PARAMS=\"console=ttyS0\" result/bin/run-k3s-worker2-vm"
                     }
                 }
             }
