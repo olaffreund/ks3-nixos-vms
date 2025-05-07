@@ -8,40 +8,95 @@
     (commonConfig.vm)
   ];
 
-  # Master specific configuration
-  networking.hostName = "k3s-master";
+  # Standalone K3s server configuration
+  networking = {
+    hostName = "k3s-server";
 
-  # K3s server (master) configuration
+    # Static IP configuration
+    useDHCP = false;
+    interfaces.eth0 = {
+      ipv4.addresses = [
+        {
+          address = "10.0.2.15";
+          prefixLength = 24;
+        }
+      ];
+    };
+    defaultGateway = "10.0.2.2";
+  };
+
+  # K3s standalone server configuration
   services.k3s = {
     enable = true;
     role = "server";
-    serverAddr = "https://k3s-master:6443";
-    token = "my-shared-secret-token"; # In real setup, use a more secure token
-    extraFlags = toString [
+    # No serverAddr needed for standalone setup
+    extraFlags = [
       # Server specific flags
-      "--cluster-init"
+      "--write-kubeconfig-mode=0644"
       "--disable=traefik" # We'll deploy our own ingress
-      "--tls-san=k3s-master"
-      "--node-ip=$(hostname -I | awk '{print $1}')"
+      "--node-ip=10.0.2.15" # Use the static IP we defined above
+      "--tls-san=10.0.2.15" # Add IP to the TLS SAN
+      "--tls-san=k3s-server" # Add hostname to the TLS SAN
     ];
   };
 
-  # Ensure k3s data is persisted
-  systemd.services.k3s.after = ["tailscale.service"];
-
-  # Script to copy kubeconfig to shared folder for convenience
+  # Enhanced script to copy and modify kubeconfig for external use
   systemd.services.copy-kubeconfig = {
-    description = "Copy kubeconfig to shared folder";
-    after = ["k3s.service"];
+    description = "Export kubeconfig to shared folder for k9s";
+    after = ["k3s.service" "network.target"];
+    requires = ["k3s.service"];
     wantedBy = ["multi-user.target"];
+    path = with pkgs; [k3s coreutils jq iproute2 gnugrep];
     script = ''
+      # Sleep to ensure k3s is fully initialized
+      sleep 10
+
+      # Ensure shared directory exists and is accessible
       mkdir -p /shared
-      cp /etc/rancher/k3s/k3s.yaml /shared/kubeconfig
-      chmod 644 /shared/kubeconfig
-      echo "Kubeconfig copied to /shared/kubeconfig"
+      chmod 777 /shared
+
+      # Copy kubeconfig
+      if [ -f /etc/rancher/k3s/k3s.yaml ]; then
+        # Use the static IP defined in networking configuration
+        VM_IP="10.0.2.15"
+
+        echo "Using VM IP: $VM_IP"
+
+        # Create a temporary file first and then move it to avoid partial writes
+        cat /etc/rancher/k3s/k3s.yaml | \
+          sed "s|127.0.0.1|$VM_IP|g" | \
+          sed "s|localhost|$VM_IP|g" | \
+          sed "s|https://k3s-server:6443|https://$VM_IP:6443|g" > /shared/kubeconfig.tmp
+
+        # Make it readable and move into place
+        chmod 644 /shared/kubeconfig.tmp
+        mv /shared/kubeconfig.tmp /shared/kubeconfig
+
+        echo "Kubeconfig successfully exported to /shared/kubeconfig with IP $VM_IP"
+        echo "Debug: Contents of /shared directory:"
+        ls -la /shared/
+      else
+        echo "K3s kubeconfig not found yet at /etc/rancher/k3s/k3s.yaml"
+        ls -la /etc/rancher/k3s/ || echo "Directory not accessible"
+        exit 1
+      fi
     '';
     serviceConfig = {
       Type = "oneshot";
+      Restart = "on-failure";
+      RestartSec = "15s";
+      StandardOutput = "journal+console";
+    };
+  };
+
+  # Create a timer to periodically update the kubeconfig
+  systemd.timers.copy-kubeconfig = {
+    description = "Timer for updating kubeconfig in shared folder";
+    wantedBy = ["timers.target"];
+    timerConfig = {
+      OnBootSec = "45s"; # Wait longer for k3s and networking to be fully ready
+      OnUnitActiveSec = "3min";
+      Unit = "copy-kubeconfig.service";
     };
   };
 
@@ -69,27 +124,4 @@
   # Copy deployment files to VM - using proper paths from flake
   environment.etc."k3s/deployments/database.yaml".source = deploymentFiles.database;
   environment.etc."k3s/deployments/nginx.yaml".source = deploymentFiles.nginx;
-
-  # Tailscale setup for master - auto authenticate if a key is provided
-  systemd.services.tailscale-autoconnect = {
-    description = "Automatic connection to Tailscale";
-    after = ["network-pre.target" "tailscale.service"];
-    wants = ["network-pre.target" "tailscale.service"];
-    wantedBy = ["multi-user.target"];
-    serviceConfig.Type = "oneshot";
-    script = ''
-      # Wait for tailscaled to settle
-      sleep 2
-
-      # Check if we are already authenticated to tailscale
-      status="$(${pkgs.tailscale}/bin/tailscale status -json | ${pkgs.jq}/bin/jq -r .BackendState)"
-      if [ $status = "Running" ]; then
-        exit 0
-      fi
-
-      # Otherwise authenticate with tailscale
-      # In production, use tailscale auth key from a file or environment variable
-      ${pkgs.tailscale}/bin/tailscale up --authkey=YOUR_TAILSCALE_AUTH_KEY --hostname="k3s-master"
-    '';
-  };
 }

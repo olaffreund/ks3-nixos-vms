@@ -1,12 +1,11 @@
 # NixOS K3s Cluster with QEMU VMs
 
-This project provides a Nix flake for setting up a three-node K3s cluster using QEMU virtual machines on NixOS. The cluster consists of one master node and two worker nodes, all integrated with Tailscale for secure networking.
+This project provides a Nix flake for setting up a three-node K3s cluster using QEMU virtual machines on NixOS. The cluster consists of one master node and two worker nodes.
 
 ## Features
 
 - **Three NixOS VMs**: One master and two worker nodes
 - **K3s Kubernetes**: Lightweight Kubernetes distribution
-- **Tailscale Integration**: Secure networking between nodes
 - **Shared Folder**: Easy file exchange between host and VMs
 - **Sample Deployment**: PostgreSQL database and Nginx web interface
 - **QEMU Disk Images**: Build standalone QEMU disk images for deployment
@@ -16,7 +15,6 @@ This project provides a Nix flake for setting up a three-node K3s cluster using 
 
 - NixOS with flakes enabled
 - QEMU for virtualization
-- Tailscale account (for authentication keys)
 
 ## Directory Structure
 
@@ -36,9 +34,8 @@ ks3-nixos-vms/
 ## Setup Instructions
 
 1. Clone this repository
-2. Replace `YOUR_TAILSCALE_AUTH_KEY` in the VM configuration files with your actual Tailscale auth key
-3. Create the shared folder: `mkdir -p /tmp/nixos-vm-shared`
-4. Start the cluster:
+2. Create the shared folder: `mkdir -p /tmp/nixos-vm-shared`
+3. Start the cluster:
    ```
    nix run
    ```
@@ -158,7 +155,6 @@ Access the web UI by navigating to the master node's IP address in your browser.
 ## Security Notes
 
 - For production use, replace the hardcoded token with a secure value
-- Don't commit Tailscale auth keys to version control
 - Consider using Nix's secret management capabilities for sensitive data
 
 ## License

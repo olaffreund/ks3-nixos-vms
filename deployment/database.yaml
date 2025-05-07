@@ -5,7 +5,7 @@ metadata:
 type: Opaque
 stringData:
   POSTGRES_USER: admin
-  POSTGRES_PASSWORD: password
+  POSTGRES_PASSWORD: password  # In production, use a properly generated password
   POSTGRES_DB: testdb
 ---
 apiVersion: v1
@@ -18,6 +18,7 @@ spec:
   resources:
     requests:
       storage: 1Gi
+  storageClassName: local-path  # K3s default storage class
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -30,6 +31,8 @@ spec:
   selector:
     matchLabels:
       app: postgres
+  strategy:
+    type: Recreate  # Ensures we don't run two Postgres instances simultaneously
   template:
     metadata:
       labels:
@@ -37,15 +40,26 @@ spec:
     spec:
       containers:
       - name: postgres
-        image: postgres:14
+        image: postgres:15  # Updated to a newer version
         ports:
         - containerPort: 5432
+          name: postgres
         envFrom:
         - secretRef:
             name: postgres-secret
+        env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata  # Explicit PGDATA path
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
         readinessProbe:
           exec:
             command:
@@ -54,6 +68,17 @@ spec:
             - admin
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - admin
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
       volumes:
       - name: postgres-storage
         persistentVolumeClaim:
@@ -69,4 +94,5 @@ spec:
   ports:
   - port: 5432
     targetPort: 5432
+    name: postgres
   type: ClusterIP
