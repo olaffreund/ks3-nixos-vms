@@ -55,6 +55,7 @@
       htop
       k3s
       tailscale
+      k9s
     ];
 
     # SSH server

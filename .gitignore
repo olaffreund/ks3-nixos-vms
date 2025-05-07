@@ -1,0 +1,22 @@
+# Nix build results
+result
+result-*
+
+# QEMU disk images
+*.qcow2
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*~
+
+# Direnv
+.direnv/
+
+# Temporary files
+/tmp/

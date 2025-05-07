@@ -154,8 +154,10 @@
           nixpkgs-fmt # For formatting Nix files
           git
 
-          # Terminal multiplexer
+          # Terminal multiplexer and shell
           zellij
+          zsh
+          direnv # For .envrc support
 
           # Include our custom scripts
           self.packages.${system}.default
@@ -175,6 +177,8 @@
           echo " - tailscale: Secure networking"
           echo " - kustomize: Kubernetes configuration management"
           echo " - zellij: Terminal multiplexer"
+          echo " - zsh: Default shell"
+          echo " - direnv: Environment management"
           echo ""
           echo "VM Management Commands:"
           echo " - run-cluster: Run all VMs locally"
@@ -189,6 +193,10 @@
           echo ""
           echo "K3s Cluster in Zellij Command:"
           echo " - k3s-cluster-zellij: Launch the K3s cluster in a Zellij session with interactive panes"
+          echo ""
+          echo "Environment Management:"
+          echo " - direnv is enabled - the .envrc file will automatically load the development environment"
+          echo " - Default shell set to zsh for improved interactive experience"
           echo ""
           echo "To access kubeconfig: export KUBECONFIG=/tmp/nixos-vm-shared/kubeconfig"
 
