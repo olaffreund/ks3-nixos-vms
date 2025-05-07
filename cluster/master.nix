@@ -25,6 +25,18 @@
     defaultGateway = "10.0.2.2";
   };
 
+  # Ensure SSH is properly configured for remote access
+  services.openssh = {
+    enable = true;
+    settings = {
+      PermitRootLogin = "yes";
+      PasswordAuthentication = true;
+    };
+  };
+
+  # Set root password for SSH access
+  users.users.root.initialPassword = "nixos";
+
   # K3s standalone server configuration
   services.k3s = {
     enable = true;

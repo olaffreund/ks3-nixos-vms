@@ -46,8 +46,34 @@
       };
     };
 
-    # Create QEMU image
-    mkQemuImage = name: nixosConfig: nixosConfig.config.system.build.vm;
+    # Create QEMU image with port forwarding
+    mkQemuImage = name: nixosConfig: let
+      vm = nixosConfig.config.system.build.vm;
+      # Create a wrapper script instead of modifying the original
+      vmScript = pkgs.writeShellScriptBin "run-${name}-vm" ''
+        #!/bin/sh
+        # Create the shared directory for kubeconfig if it doesn't exist
+        mkdir -p /tmp/nixos-vm-shared
+        chmod 777 /tmp/nixos-vm-shared
+
+        echo "Starting K3s VM with port forwarding..."
+        echo "-------------------------------"
+        echo "SSH Access: ssh root@localhost -p 2222 (password: nixos)"
+        echo "K8s API: Accessible on localhost:6443 once the VM is ready"
+        echo "To use k9s: export KUBECONFIG=/tmp/nixos-vm-shared/kubeconfig && k9s"
+        echo "-------------------------------"
+
+        # Run the VM with port forwarding for SSH and K8s API
+        ${vm}/bin/run-nixos-vm \
+          -net user,hostfwd=tcp::2222-:22,hostfwd=tcp::6443-:6443 \
+          "$@"
+      '';
+    in
+      # Combine the original VM with our wrapper script
+      pkgs.symlinkJoin {
+        name = "k3s-vm-${name}";
+        paths = [vm vmScript];
+      };
 
     # Remote build script
     remoteBuildScript = target:
@@ -90,8 +116,8 @@
         default = pkgs.writeShellScriptBin "run-standalone" ''
           #!/bin/sh
           # Start standalone K3s VM
-          echo "Starting K3s standalone VM..."
-          ${self.packages.${system}.master}/bin/run-nixos-vm &
+          echo "Starting K3s standalone VM with port forwarding..."
+          ${self.packages.${system}.master}/bin/run-master-vm &
           wait
         '';
       };
