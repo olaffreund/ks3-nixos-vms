@@ -2,7 +2,7 @@
   lib,
   pkgs,
   commonConfig,
-}: {config, ...}: {
+}: {...}: {
   imports = [
     (commonConfig.vm)
   ];

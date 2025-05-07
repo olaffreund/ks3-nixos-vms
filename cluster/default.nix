@@ -1,25 +1,42 @@
-{lib}: {
+{lib, ...}: {
   # Common VM configuration
-  vm = {
-    config,
-    pkgs,
-    ...
-  }: {
+  vm = {pkgs, ...}: {
     # Basic system configuration
-    system.stateVersion = "23.11";
+    system.stateVersion = "25.05";
 
     # VM settings
     virtualisation = {
-      memorySize = 2048; # 2GB RAM
-      cores = 2; # 2 CPU cores
+      # Empty virtualisation block, options moved to vmVariant
+    };
 
-      # Shared folder for easy file exchange with host
-      sharedDirectories = {
-        shared = {
-          source = "/tmp/nixos-vm-shared";
-          target = "/shared";
+    # For NixOS VM testing, use these options instead
+    virtualisation.vmVariant = {
+      virtualisation = {
+        cores = 2;
+        memorySize = 2048;
+
+        # Shared folder for easy file exchange with host
+        sharedDirectories = {
+          shared = {
+            source = lib.mkForce "/tmp/nixos-vm-shared";
+            target = lib.mkForce "/shared";
+          };
         };
       };
+    };
+
+    # Required file systems configuration
+    fileSystems = {
+      "/" = {
+        device = "/dev/disk/by-label/nixos";
+        fsType = "ext4";
+      };
+    };
+
+    # Boot loader configuration
+    boot.loader.grub = {
+      enable = true;
+      devices = ["/dev/sda"];
     };
 
     # Network configuration

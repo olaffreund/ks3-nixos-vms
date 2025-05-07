@@ -72,17 +72,22 @@ Build individual node QEMU disk images:
 
 ```bash
 # Build master node image
-nix build .#qemuImages.master
+nix build .#qemu-master
 
 # Build worker node images
-nix build .#qemuImages.worker1
-nix build .#qemuImages.worker2
-
-# Build all images at once
-nix build .#qemuImages.all
+nix build .#qemu-worker1
+nix build .#qemu-worker2
 ```
 
-The resulting `.qcow2` images will be available in the `./result/` directory.
+### Building All Images at Once
+
+You can build all VM images in a single command:
+
+```bash
+nix build .#qemu-images-all
+```
+
+The resulting VM images will be available in the `./result/` directory.
 
 ### Remote Builds
 
@@ -93,7 +98,7 @@ Build the images on a remote machine:
 build-remote
 
 # Manual remote build to any machine
-nix build .#qemuImages.all --builders 'ssh://your-remote-machine'
+nix build .#qemu-images-all --builders 'ssh://your-remote-machine'
 ```
 
 ### Helper Functions
@@ -105,6 +110,32 @@ When in the development shell, you can use helper functions:
 build_qemu_image master
 build_qemu_image worker1
 build_qemu_image worker2
+```
+
+## Running the Cluster
+
+### Starting All VMs at Once
+
+The simplest way to start all VMs in the correct order is:
+
+```bash
+nix run
+```
+
+This runs the preconfigured `run-cluster` script which:
+1. Starts the master node first
+2. Waits 10 seconds for the master to initialize
+3. Starts both worker nodes simultaneously
+4. Keeps the terminal active until all VM processes exit
+
+Alternatively, you can build the script once and use it directly:
+
+```bash
+# Build the script
+nix build .#default
+
+# Run the resulting script
+./result/bin/run-cluster
 ```
 
 ## Testing the Database Connection

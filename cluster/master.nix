@@ -2,7 +2,8 @@
   lib,
   pkgs,
   commonConfig,
-}: {config, ...}: {
+  deploymentFiles,
+}: {...}: {
   imports = [
     (commonConfig.vm)
   ];
@@ -65,9 +66,9 @@
     };
   };
 
-  # Copy deployment files to VM
-  environment.etc."k3s/deployments/database.yaml".source = ../deployment/database.yaml;
-  environment.etc."k3s/deployments/nginx.yaml".source = ../deployment/nginx.yaml;
+  # Copy deployment files to VM - using proper paths from flake
+  environment.etc."k3s/deployments/database.yaml".source = deploymentFiles.database;
+  environment.etc."k3s/deployments/nginx.yaml".source = deploymentFiles.nginx;
 
   # Tailscale setup for master - auto authenticate if a key is provided
   systemd.services.tailscale-autoconnect = {
