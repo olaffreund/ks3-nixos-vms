@@ -1,0 +1,254 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  default.conf: |
+    server {
+      listen 80;
+
+      location / {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ /index.html;
+        index index.html;
+      }
+
+      location /api/health {
+        return 200 '{"status":"ok"}';
+        add_header Content-Type application/json;
+      }
+      
+      location /api/database {
+        default_type application/json;
+        proxy_pass http://database-check:3000/check;
+      }
+    }
+  index.html: |
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>K3s Cluster Test</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          margin: 40px;
+          line-height: 1.6;
+          color: #333;
+        }
+        h1 {
+          color: #2c3e50;
+        }
+        button {
+          background-color: #3498db;
+          color: white;
+          border: none;
+          padding: 10px 15px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 1em;
+          margin: 20px 0;
+        }
+        button:hover {
+          background-color: #2980b9;
+        }
+        #result {
+          background-color: #f8f9fa;
+          border: 1px solid #ddd;
+          padding: 15px;
+          border-radius: 4px;
+          min-height: 50px;
+        }
+        .success {
+          color: green;
+        }
+        .error {
+          color: red;
+        }
+      </style>
+    </head>
+    <body>
+      <h1>K3s Cluster Test</h1>
+      <p>This page tests the connection to the PostgreSQL database in the Kubernetes cluster.</p>
+      
+      <button onclick="checkDatabase()">Check Database Connection</button>
+      
+      <div id="result">Connection status will appear here...</div>
+      
+      <script>
+        async function checkDatabase() {
+          const resultDiv = document.getElementById('result');
+          resultDiv.innerHTML = "Checking database connection...";
+          
+          try {
+            const response = await fetch('/api/database');
+            const data = await response.json();
+            
+            if(data.connected) {
+              resultDiv.innerHTML = `
+                <p class="success">✅ Successfully connected to database!</p>
+                <p>Database: ${data.database}</p>
+                <p>User: ${data.user}</p>
+                <p>PostgreSQL Version: ${data.version}</p>
+              `;
+            } else {
+              resultDiv.innerHTML = `
+                <p class="error">❌ Failed to connect to database.</p>
+                <p>Error: ${data.error}</p>
+              `;
+            }
+          } catch (error) {
+            resultDiv.innerHTML = `
+              <p class="error">❌ Error checking database connection</p>
+              <p>${error.message}</p>
+            `;
+          }
+        }
+      </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-check
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: database-check
+  template:
+    metadata:
+      labels:
+        app: database-check
+    spec:
+      containers:
+      - name: database-check
+        image: node:16-alpine
+        ports:
+        - containerPort: 3000
+        env:
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_USER
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: PGDATABASE
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_DB
+        - name: PGHOST
+          value: postgres
+        - name: PGPORT
+          value: "5432"
+        command:
+        - sh
+        - -c
+        - |
+          echo 'Installing dependencies...'
+          npm init -y
+          npm install pg express
+          
+          echo 'Creating server.js...'
+          cat > server.js << 'EOF'
+          const express = require('express');
+          const { Pool } = require('pg');
+          const app = express();
+          const port = 3000;
+          
+          const pool = new Pool({
+            user: process.env.PGUSER,
+            host: process.env.PGHOST,
+            database: process.env.PGDATABASE,
+            password: process.env.PGPASSWORD,
+            port: process.env.PGPORT,
+          });
+          
+          app.get('/check', async (req, res) => {
+            try {
+              const client = await pool.connect();
+              const result = await client.query('SELECT version()');
+              const version = result.rows[0].version;
+              client.release();
+              
+              res.json({
+                connected: true,
+                database: process.env.PGDATABASE,
+                user: process.env.PGUSER,
+                version: version
+              });
+            } catch (err) {
+              res.json({
+                connected: false,
+                error: err.message
+              });
+            }
+          });
+          
+          app.listen(port, () => {
+            console.log(`Database check service running at http://localhost:${port}`);
+          });
+          EOF
+          
+          echo 'Starting Node.js server...'
+          node server.js
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: database-check
+spec:
+  selector:
+    app: database-check
+  ports:
+  - port: 3000
+    targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+        - name: nginx-config
+          mountPath: /usr/share/nginx/html/index.html
+          subPath: index.html
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+spec:
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer
