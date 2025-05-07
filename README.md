@@ -9,6 +9,8 @@ This project provides a Nix flake for setting up a three-node K3s cluster using 
 - **Tailscale Integration**: Secure networking between nodes
 - **Shared Folder**: Easy file exchange between host and VMs
 - **Sample Deployment**: PostgreSQL database and Nginx web interface
+- **QEMU Disk Images**: Build standalone QEMU disk images for deployment
+- **Remote Building**: Support for remote building of VM images
 
 ## Prerequisites
 
@@ -52,6 +54,59 @@ Once the VMs are running:
    ```
 3. Access the web interface by navigating to the master node's IP address in a browser
 
+## Development Environment
+
+Enter the development environment with:
+
+```bash
+nix develop
+```
+
+This provides access to all necessary tools including kubectl, k3s, helm, qemu, and more.
+
+## Building QEMU Images
+
+### Local Builds
+
+Build individual node QEMU disk images:
+
+```bash
+# Build master node image
+nix build .#qemuImages.master
+
+# Build worker node images
+nix build .#qemuImages.worker1
+nix build .#qemuImages.worker2
+
+# Build all images at once
+nix build .#qemuImages.all
+```
+
+The resulting `.qcow2` images will be available in the `./result/` directory.
+
+### Remote Builds
+
+Build the images on a remote machine:
+
+```bash
+# Using the preconfigured remote builder
+build-remote
+
+# Manual remote build to any machine
+nix build .#qemuImages.all --builders 'ssh://your-remote-machine'
+```
+
+### Helper Functions
+
+When in the development shell, you can use helper functions:
+
+```bash
+# Build specific node images
+build_qemu_image master
+build_qemu_image worker1
+build_qemu_image worker2
+```
+
 ## Testing the Database Connection
 
 The sample application deploys:
@@ -67,6 +122,7 @@ Access the web UI by navigating to the master node's IP address in your browser.
 - Modify VM resources in `cluster/default.nix`
 - Change K3s configuration in the master and worker node files
 - Add more Kubernetes deployments to the `deployment` directory
+- Configure your own remote build targets in the `remoteBuild` section of the flake.nix file
 
 ## Security Notes
 
